@@ -39,14 +39,14 @@ def test_small_task_oriented_surface_passes() -> None:
             _tool(
                 "investigate_customer",
                 (
-                    "Gather the customer, recent orders, and payment state "
-                    "for a support investigation."
+                    "Use when support needs the customer, recent orders, and payment state "
+                    "for an investigation."
                 ),
                 parameter_count=2,
             ),
             _tool(
                 "refund_order",
-                "Refund a confirmed order and return the resulting payment status.",
+                "Use when a confirmed order should be refunded; return its payment status.",
                 parameter_count=2,
             ),
         ],

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 class ToolDefinition(BaseModel):
@@ -46,10 +48,28 @@ class Severity(StrEnum):
 
 
 class Finding(BaseModel):
+    rule_id: str
     severity: Severity
     message: str
-    tool: str | None = None
+    tools: list[str] = Field(default_factory=list)
+    subject: str | None = None
     suggestion: str | None = None
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    suppressed: bool = False
+    suppression_reason: str | None = None
+
+    @computed_field
+    @property
+    def fingerprint(self) -> str:
+        """Stable identity for baseline matching; presentation details are excluded."""
+
+        identity = {
+            "rule_id": self.rule_id,
+            "subject": self.subject,
+            "tools": sorted(set(self.tools)),
+        }
+        payload = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
 class CheckResult(BaseModel):
@@ -61,14 +81,32 @@ class CheckResult(BaseModel):
 
 
 class AnalysisReport(BaseModel):
+    report_format_version: int = 1
+    analysis_version: str = "0.2"
     inspection: ServerInspection
     metrics: dict[str, int | float]
     checks: list[CheckResult]
+    policy: dict[str, Any] = Field(default_factory=dict)
 
+    @computed_field
     @property
     def warning_count(self) -> int:
         return sum(
-            finding.severity == Severity.WARNING
+            finding.severity == Severity.WARNING and not finding.suppressed
             for check in self.checks
             for finding in check.findings
         )
+
+    @computed_field
+    @property
+    def info_count(self) -> int:
+        return sum(
+            finding.severity == Severity.INFO and not finding.suppressed
+            for check in self.checks
+            for finding in check.findings
+        )
+
+    @computed_field
+    @property
+    def suppressed_count(self) -> int:
+        return sum(finding.suppressed for check in self.checks for finding in check.findings)

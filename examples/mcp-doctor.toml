@@ -1,0 +1,9 @@
+version = 1
+
+[thresholds]
+semantic_overlap = 0.72
+
+[[suppressions]]
+rule = "semantic-overlap.ambiguous-pair"
+tools = ["find_orders", "search_orders"]
+reason = "Intentional aliases retained while clients migrate to search_orders."

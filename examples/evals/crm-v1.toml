@@ -1,0 +1,19 @@
+version = 1
+suite = "example-crm"
+revision = "crm-v1"
+
+[tools.lookup_customer]
+capabilities = ["customer.lookup"]
+effect = "read"
+
+[tools.lookup_orders]
+capabilities = ["orders.lookup"]
+effect = "read"
+
+[tools.health_check]
+capabilities = ["system.health"]
+effect = "read"
+
+[tools.add_customer_note]
+capabilities = ["customer.note.write"]
+effect = "write"

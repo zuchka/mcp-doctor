@@ -1,0 +1,52 @@
+version = 1
+name = "example-crm"
+
+[defaults]
+max_turns = 6
+max_tool_calls = 4
+task_timeout_seconds = 60
+tool_timeout_seconds = 15
+max_tool_result_bytes = 50000
+
+[[capabilities]]
+id = "customer.lookup"
+description = "Resolve a customer from exact identifying information."
+
+[[capabilities]]
+id = "orders.lookup"
+description = "Retrieve orders for a known customer."
+
+[[capabilities]]
+id = "system.health"
+description = "Check service availability."
+
+[[capabilities]]
+id = "customer.note.write"
+description = "Persist a note on a customer record."
+
+[[tasks]]
+id = "find-order-status"
+prompt = "What is the status of the latest order for ada@example.com? Include its order ID."
+expected_capabilities = ["customer.lookup", "orders.lookup"]
+allowed_capabilities = []
+forbidden_capabilities = ["system.health", "customer.note.write"]
+expected_sequence = ["customer.lookup", "orders.lookup"]
+tags = ["orders", "smoke"]
+
+[[tasks.graders]]
+type = "final_contains"
+id = "reports-order"
+values = ["A-123", "shipped"]
+
+[[tasks]]
+id = "find-customer-name"
+prompt = "Who owns the account for ada@example.com?"
+expected_capabilities = ["customer.lookup"]
+allowed_capabilities = []
+forbidden_capabilities = ["system.health", "customer.note.write"]
+tags = ["customers", "smoke"]
+
+[[tasks.graders]]
+type = "final_contains"
+id = "reports-name"
+values = ["Ada Lovelace"]
