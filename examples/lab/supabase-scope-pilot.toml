@@ -1,0 +1,70 @@
+# Replace all placeholders with exact pinned values before planning.
+version = 1
+id = "supabase-scope-pilot"
+output_dir = "./scope-lab-output"
+tasks = [
+  "build-rls-003-org-roles-permissions",
+  "resolve-security-002-rls-cross-tenant-leak",
+  "resolve-dataapi-001-empty-results",
+]
+repetitions = 1
+seed = 41827
+
+[sources]
+evals_checkout = "./supabase-evals"
+evals_commit = "<40-character-evals-commit>"
+doctor_commit = "<40-character-doctor-commit>"
+doctor_version = "0.4.0"
+mcp_server_version = "<exact-package-version-or-build-commit>"
+
+[agent]
+harness = "codex"
+model = "<exact-model-id>"
+reasoning_effort = "medium"
+
+[runtime]
+kind = "platform-lite"
+ephemeral = true
+
+[surfaces.broad]
+features = ["docs", "account", "database", "development", "debugging", "functions"]
+report = "./reports/broad.json"
+
+[surfaces.scoped]
+features = ["docs", "database"]
+report = "./reports/scoped.json"
+
+[skill_levels.none]
+skills = []
+
+[skill_levels.supabase]
+skills = ["supabase", "supabase-postgres-best-practices"]
+
+[[conditions]]
+id = "broad-no-skills"
+surface = "broad"
+skill_level = "none"
+experiment = "<broad-no-skills-experiment-id>"
+
+[[conditions]]
+id = "scoped-no-skills"
+surface = "scoped"
+skill_level = "none"
+experiment = "<scoped-no-skills-experiment-id>"
+
+[[conditions]]
+id = "broad-skills"
+surface = "broad"
+skill_level = "supabase"
+experiment = "<broad-skills-experiment-id>"
+
+[[conditions]]
+id = "scoped-skills"
+surface = "scoped"
+skill_level = "supabase"
+experiment = "<scoped-skills-experiment-id>"
+
+[limits]
+attempt_timeout_seconds = 720
+maximum_attempts = 12
+infrastructure_retries = 0

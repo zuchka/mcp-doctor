@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 from pathlib import Path
 
-from mcp_doctor.analyzers import analyze
-from mcp_doctor.diff import ReportFileError, compare_reports, load_report, save_report
-from mcp_doctor.evals.compare import EvalComparisonError, compare_eval_runs
+from mcp_doctor.diff import ReportFileError
+from mcp_doctor.evals.compare import EvalComparisonError
 from mcp_doctor.evals.drivers import DriverError, OpenAIResponsesDriver
-from mcp_doctor.evals.harness import EvalHarnessError, evaluate_suite, preflight_eval
-from mcp_doctor.evals.io import EvalRunFileError, load_eval_run, save_eval_run
+from mcp_doctor.evals.harness import EvalHarnessError
+from mcp_doctor.evals.io import EvalRunFileError
 from mcp_doctor.evals.models import AgentConfig, Effect, HarnessConfig, RecordingMode
 from mcp_doctor.evals.report import (
     render_eval_diff_json,
@@ -20,16 +20,26 @@ from mcp_doctor.evals.report import (
     render_preflight_json,
     render_preflight_text,
 )
-from mcp_doctor.evals.suite import (
-    EvalConfigError,
-    filter_suite,
-    load_capability_map,
-    load_eval_suite,
-)
-from mcp_doctor.inspector import InspectionError, inspect_server
-from mcp_doctor.policy import AnalysisPolicy, PolicyError, load_policy
+from mcp_doctor.evals.suite import EvalConfigError
+from mcp_doctor.inspector import InspectionError
+from mcp_doctor.lab.io import write_json
+from mcp_doctor.lab.models import LabError
+from mcp_doctor.lab.planner import load_plan
+from mcp_doctor.policy import PolicyError
 from mcp_doctor.report import render_diff_json, render_diff_text, render_json, render_text
-from mcp_doctor.targets import resolve_config, resolve_source, resolve_target
+from mcp_doctor.surface_compare import ComparisonError, render_comparison
+from mcp_doctor.targets import resolve_config, resolve_target
+from mcp_doctor.workflows import (
+    compare_evaluations,
+    compare_inspections,
+    compare_surface_workflow,
+    inspect_workflow,
+    plan_lab_workflow,
+    prepare_eval,
+    report_lab_workflow,
+    run_lab_workflow,
+    run_prepared_eval,
+)
 
 _resolve_config = resolve_config
 _resolve_target = resolve_target
@@ -78,6 +88,38 @@ def _parser() -> argparse.ArgumentParser:
         "--fail-on-new",
         action="store_true",
         help="Exit 1 when the current report contains new active warnings.",
+    )
+
+    compare_parser = subparsers.add_parser(
+        "compare", help="Compare two intentional peer surfaces from saved reports."
+    )
+    compare_parser.add_argument("report_a", type=Path)
+    compare_parser.add_argument("report_b", type=Path)
+    compare_parser.add_argument("--label-a", default="A")
+    compare_parser.add_argument("--label-b", default="B")
+    compare_parser.add_argument("--json", action="store_true")
+    compare_parser.add_argument("--save-comparison", type=Path)
+
+    lab_parser = subparsers.add_parser("lab", help="Plan, run, and report an external scope study.")
+    lab_commands = lab_parser.add_subparsers(dest="lab_command", required=True)
+    lab_plan = lab_commands.add_parser("plan", help="Validate and save a nonbillable study plan.")
+    lab_plan.add_argument("manifest", type=Path)
+    lab_plan.add_argument("--json", action="store_true")
+    lab_plan.add_argument("--save-plan", type=Path)
+    lab_run = lab_commands.add_parser("run", help="Execute a plan with billable model calls.")
+    lab_run.add_argument("plan", type=Path)
+    lab_run.add_argument("--resume", action="store_true")
+    lab_run.add_argument("--max-attempts", type=int, required=True)
+    lab_report = lab_commands.add_parser(
+        "report", help="Aggregate a saved Lab ledger without execution."
+    )
+    lab_report.add_argument("plan", type=Path)
+    lab_report.add_argument("--json", action="store_true")
+    lab_report.add_argument("--markdown", type=Path)
+    lab_report.add_argument(
+        "--public-json",
+        type=Path,
+        help="Write a checked, publication-safe JSON summary.",
     )
 
     eval_parser = subparsers.add_parser(
@@ -164,17 +206,19 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Exit 1 when task success, forbidden calls, or tool errors regress.",
     )
+    subparsers.add_parser("serve", help="Serve MCP Doctor as a local STDIO MCP server.")
     return parser
 
 
 async def _run_inspect(args: argparse.Namespace) -> int:
     try:
-        policy = load_policy(args.policy) if args.policy else AnalysisPolicy()
-        source, target_label = resolve_source(target=args.target, config=args.config)
-        inspection = await inspect_server(source, timeout=args.timeout, target_label=target_label)
-        report = analyze(inspection, policy)
-        if args.save_report:
-            save_report(report, args.save_report)
+        report = await inspect_workflow(
+            target=args.target,
+            config=args.config,
+            policy_path=args.policy,
+            timeout=args.timeout,
+            save_path=args.save_report,
+        )
     except (ValueError, InspectionError, PolicyError, ReportFileError) as exc:
         print(f"mcp-doctor: {exc}", file=sys.stderr)
         return 2
@@ -185,9 +229,7 @@ async def _run_inspect(args: argparse.Namespace) -> int:
 
 def _run_diff(args: argparse.Namespace) -> int:
     try:
-        baseline = load_report(args.baseline)
-        current = load_report(args.current)
-        diff = compare_reports(baseline, current)
+        diff = compare_inspections(args.baseline, args.current)
     except ReportFileError as exc:
         print(f"mcp-doctor: {exc}", file=sys.stderr)
         return 2
@@ -195,26 +237,98 @@ def _run_diff(args: argparse.Namespace) -> int:
     return 1 if args.fail_on_new and diff.new_warning_count else 0
 
 
+def _run_compare(args: argparse.Namespace) -> int:
+    try:
+        comparison = compare_surface_workflow(
+            args.report_a,
+            args.report_b,
+            label_a=args.label_a,
+            label_b=args.label_b,
+            save_path=args.save_comparison,
+        )
+    except (ValueError, ReportFileError, ComparisonError, LabError) as exc:
+        print(f"mcp-doctor: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(comparison.model_dump(mode="json"), indent=2, sort_keys=True)
+        if args.json
+        else render_comparison(comparison)
+    )
+    return 0 if comparison.tool_presence_known else 2
+
+
+def _run_lab(args: argparse.Namespace) -> int:
+    try:
+        if args.lab_command == "plan":
+            plan, path = plan_lab_workflow(args.manifest, save_path=args.save_plan)
+            summary = {
+                "study_id": plan.manifest.id,
+                "model": plan.manifest.agent.model,
+                "tasks": list(plan.manifest.tasks),
+                "attempts": len(plan.ordered_attempts),
+                "maximum_attempts": plan.manifest.limits.maximum_attempts,
+                "plan_path": str(path),
+                "model_calls": 0,
+                "target_tool_calls": 0,
+            }
+            if args.json:
+                print(json.dumps(summary, indent=2, sort_keys=True))
+            else:
+                print(
+                    f"Lab plan saved to {path}: {summary['attempts']} attempts "
+                    f"across {len(plan.manifest.tasks)} tasks and 4 conditions; "
+                    f"model {summary['model']}."
+                )
+            return 0
+        if args.lab_command == "run":
+            plan, _ = load_plan(args.plan)
+            print(
+                f"Running model {plan.manifest.agent.model}: {len(plan.manifest.tasks)} tasks, "
+                f"{len(plan.ordered_attempts)} scheduled attempts, "
+                f"maximum {plan.manifest.limits.maximum_attempts} billable attempts."
+            )
+            events = run_lab_workflow(
+                args.plan,
+                max_attempts=args.max_attempts,
+                resume=args.resume,
+            )
+            print(f"Lab ledger has {len(events)} events at {Path(plan.output_dir) / 'ledger'}.")
+            return 0
+        if args.lab_command == "report":
+            report = report_lab_workflow(args.plan, markdown_path=args.markdown)
+            if args.public_json:
+                from mcp_doctor.lab.report import public_export
+
+                write_json(args.public_json, public_export(report))
+            if args.json:
+                print(json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True))
+            else:
+                from mcp_doctor.lab.report import render_markdown
+
+                print(render_markdown(report), end="")
+            return 0
+    except (ValueError, LabError, ReportFileError) as exc:
+        print(f"mcp-doctor: {exc}", file=sys.stderr)
+        return 2
+    return 2
+
+
 async def _run_eval(args: argparse.Namespace) -> int:
     try:
-        suite = load_eval_suite(args.suite)
-        suite = filter_suite(
-            suite,
+        prepared = await prepare_eval(
+            target=args.target,
+            config=args.config,
+            suite_path=args.suite,
+            capability_map_path=args.capability_map,
             task_ids=set(args.task) or None,
             tags=set(args.tag) or None,
-        )
-        capability_map = load_capability_map(args.capability_map)
-        source, target_label = resolve_source(target=args.target, config=args.config)
-        preflight = await preflight_eval(
-            source,
-            target_label=target_label,
-            suite=suite,
-            capability_map=capability_map,
             timeout=args.timeout,
         )
         if args.dry_run:
             print(
-                render_preflight_json(preflight) if args.json else render_preflight_text(preflight)
+                render_preflight_json(prepared.preflight)
+                if args.json
+                else render_preflight_text(prepared.preflight)
             )
             return 0
         if not args.model:
@@ -240,19 +354,14 @@ async def _run_eval(args: argparse.Namespace) -> int:
             fail_fast=args.fail_fast,
         )
         driver = OpenAIResponsesDriver()
-        run = await evaluate_suite(
-            source,
-            target_label=target_label,
-            suite=suite,
-            capability_map=capability_map,
+        run = await run_prepared_eval(
+            prepared,
             driver=driver,
             agent_config=agent_config,
             harness_config=harness_config,
             timeout=args.timeout,
-            preflight_result=preflight,
+            save_path=args.save_run,
         )
-        if args.save_run:
-            save_eval_run(run, args.save_run)
     except (
         ValueError,
         DriverError,
@@ -270,9 +379,7 @@ async def _run_eval(args: argparse.Namespace) -> int:
 
 def _run_eval_diff(args: argparse.Namespace) -> int:
     try:
-        baseline = load_eval_run(args.baseline)
-        current = load_eval_run(args.current)
-        diff = compare_eval_runs(baseline, current)
+        diff = compare_evaluations(args.baseline, args.current)
     except (EvalRunFileError, EvalComparisonError) as exc:
         print(f"mcp-doctor: {exc}", file=sys.stderr)
         return 2
@@ -287,8 +394,17 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(asyncio.run(_run_inspect(args)))
     if args.command == "diff":
         raise SystemExit(_run_diff(args))
+    if args.command == "compare":
+        raise SystemExit(_run_compare(args))
+    if args.command == "lab":
+        raise SystemExit(_run_lab(args))
     if args.command == "eval":
         raise SystemExit(asyncio.run(_run_eval(args)))
     if args.command == "eval-diff":
         raise SystemExit(_run_eval_diff(args))
+    if args.command == "serve":
+        from mcp_doctor.server import mcp
+
+        mcp.run(transport="stdio", show_banner=False)
+        return
     parser.error(f"Unknown command: {args.command}")
