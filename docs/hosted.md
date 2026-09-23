@@ -9,7 +9,7 @@ The intended public topology is:
 
 ```text
 authenticated MCP client
-  -> Horizon TLS, OAuth, authorization, rate limits, and audit
+  -> Horizon TLS, OAuth, authorization, and audit
     -> src/mcp_doctor/hosted_server.py:mcp
       -> exact operator-approved HTTPS target
 ```
@@ -69,9 +69,11 @@ Optional operator settings are:
 | `MCP_DOCTOR_MAX_TOOL_NAMES` | 50 | 500 |
 
 Normal tool arguments can only reduce the operation timeout; they cannot disable an
-operator limit. Use Horizon for per-principal rate and concurrency limits. Keep general
-egress closed unless the platform can enforce destination policy against DNS rebinding;
-the beta's exact allowlist is the safe fallback.
+operator limit. The current Horizon plan does not surface operator-configurable
+per-principal rate/concurrency limits or audit retention, so keep organization membership
+narrow and use the application's global concurrency bound. Keep general egress closed unless
+the platform can enforce destination policy against DNS rebinding; the beta's exact allowlist
+is the safe fallback.
 
 ## Local verification
 
@@ -109,10 +111,12 @@ deployed URL:
 2. Authenticated discovery returns exactly `diagnose_remote_mcp_server`.
 3. The approved target succeeds; an unapproved target returns `target_not_permitted` and
    causes no outbound connection.
-4. Gateway host/origin validation, tool permission, per-principal rate/concurrency limits,
-   and audit retention are configured and tested.
-5. The audit event can be found using the result correlation ID and identifies the caller,
-   tool, policy decision, build/deployment, duration, and outcome without leaking secrets.
+4. Gateway Host/Origin behavior and tool permissions are tested. Configure per-principal
+   rate/concurrency limits and audit retention when the current plan exposes them; until then,
+   record the limitation and keep membership narrow.
+5. The audit event identifies the caller, tool, build/deployment, duration, and outcome
+   without leaking secrets. If the platform does not index the application correlation ID,
+   correlate by time and the Horizon request ID without re-enabling payload logging.
 6. A current required MCP conformance run has no unexplained failure.
 7. Discovery and invocation work after scale-to-zero, and a previous known-good deployment
    has been restored once to prove rollback.
@@ -145,7 +149,8 @@ exception, request header, or target payload into a client response.
 - Hosted comparisons, persisted reports, representative-task evals, Scope Lab, local files,
   and process execution remain available only through the trusted local server.
 - The application has global backpressure; identity-aware throttling and inbound host/origin
-  enforcement depend on Horizon and must be verified on the deployed endpoint.
+  enforcement depend on Horizon. The current plan does not expose operator-configurable
+  per-principal throttling or audit retention.
 - The npm MCP conformance runner available during implementation did not yet contain the
   final 2026-07-28 requirement set. This is tracked as deployment friction, not silently
   treated as a pass.
@@ -157,3 +162,11 @@ stop advertising the endpoint and restore the recorded v0.4 revision. Remove any
 target from the allowlist before retrying. Preserve sanitized build and audit evidence,
 record an entry in the friction log, and do not re-open access until the failed invariant
 has an explicit verification result.
+
+## Verified beta deployment
+
+As of 2026-09-22, the authenticated beta is Live at
+`https://mcp-doctor-beta.fastmcp.app/mcp` from merge `3aca4505`. Production discovery exposes
+one hosted-safe tool. Approved and denied calls, anonymous access, forged Host handling,
+privacy-preserving audit metadata, cold connection, and rollback/restoration have been tested.
+See the friction log for the sanitized evidence and remaining launch limitations.
