@@ -363,7 +363,9 @@ debate—useful both for learning and for an interview walkthrough.
 The implementation and public-release gates for the first Horizon deployment are in the
 [V0.5 public server plan](docs/specs/v0.5-horizon-public-server.md). Deployment friction is
 recorded without overwriting failed attempts in the
-[Horizon friction log](docs/v0.5-horizon-friction-log.md).
+[Horizon friction log](docs/v0.5-horizon-friction-log.md), with a shorter product and business
+assessment in the
+[Horizon executive review](docs/v0.5-horizon-executive-review.md).
 
 The beta is Live at `https://mcp-doctor-beta.fastmcp.app/mcp` behind mandatory Horizon
 authentication. Production exposes one hosted-safe tool, and approved/denied calls, gateway
