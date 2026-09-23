@@ -9,7 +9,7 @@ tool surface legible, economical, and unambiguous for an agent, and can an agent
 to complete the work users actually request?* `inspect` never calls server tools. `eval` does,
 inside an explicit safety and recording boundary.
 
-## V0.3
+## V0.5
 
 - Connect to a Streamable HTTP endpoint or a local Python/JavaScript MCP server.
 - Report negotiated server metadata and tools, resources, resource templates, and prompts.
@@ -34,6 +34,14 @@ inside an explicit safety and recording boundary.
 - Measure success, irrelevant and forbidden calls, tool errors, call count, latency, token use,
   and tool-definition context size.
 - Save versioned eval runs and compare compatible revisions with regression-aware CI exits.
+- Serve the same workflows to coding agents as nine task-oriented MCP tools over local STDIO.
+- Return concise, structured MCP results while keeping full reports and eval traces in versioned
+  JSON artifacts.
+- Expose a separate, fail-closed hosted catalog with one remote-only diagnosis tool.
+- Restrict hosted egress to exact operator-approved HTTPS targets and bound response, catalog,
+  schema, result, deadline, and concurrency costs.
+- Preserve the trusted local nine-tool server while Horizon supplies inbound OAuth, policy,
+  audit, TLS, scaling, and rollback for the public deployment.
 
 ## Try it
 
@@ -107,6 +115,82 @@ auditability.
 The first provider adapter uses OpenAI Responses custom-function tools. The harness and graders
 are provider-neutral, and the included scripted driver keeps tests and local harness development
 offline and deterministic.
+
+## Host MCP Doctor safely
+
+The Horizon entrypoint is `src/mcp_doctor/hosted_server.py:mcp`. It requires a JSON
+allowlist and exposes only `diagnose_remote_mcp_server`:
+
+```bash
+MCP_DOCTOR_ALLOWED_TARGET_URLS='["https://example.com/mcp"]' \
+  uv run fastmcp run src/mcp_doctor/hosted_server.py:mcp \
+  --transport http --host 127.0.0.1 --port 8765 --no-banner
+```
+
+That command is a loopback development smoke test, not a public deployment recipe. Put the
+entrypoint behind Horizon's authenticated gateway and verify auth, policy, audit, rate limits,
+cold start, conformance, and rollback before publishing its URL. See the
+[hosted operator and client runbook](docs/hosted.md) and the
+[V0.5 public-server plan](docs/specs/v0.5-horizon-public-server.md).
+
+## Use MCP Doctor locally from a coding agent
+
+Start the local MCP server with `uv run mcp-doctor serve`. An MCP client can launch it with a
+configuration like this (replace the directory with this checkout's absolute path):
+
+```json
+{
+  "mcpServers": {
+    "mcp-doctor": {
+      "command": "uv",
+      "args": ["run", "--extra", "eval", "--directory", "/absolute/path/to/mcp-doctor", "mcp-doctor", "serve"]
+    }
+  }
+}
+```
+
+The server exposes nine tools:
+
+| Tool | Use it for |
+| --- | --- |
+| `diagnose_mcp_server` | Inventory and deterministic interface findings; optionally save a full inspection report. |
+| `compare_inspection_reports` | New and resolved findings between saved inspection reports. |
+| `compare_mcp_surfaces` | Symmetric comparison of two intentional peer surfaces from saved reports. |
+| `preflight_mcp_eval` | Check a live server, suite, and capability map without model or target-tool calls. |
+| `run_mcp_eval` | Run a representative-task suite and save the full eval artifact. |
+| `compare_eval_runs` | Regressions between compatible saved eval runs. |
+| `preflight_mcp_lab` | Validate a pinned Supabase Evals 2×2 study without model calls. |
+| `run_mcp_lab` | Run the external Supabase Evals study in a native background task. |
+| `report_mcp_lab` | Summarize the saved Lab ledger and external task-state scores. |
+
+Tool inputs accept an absolute local `.py`/`.js` target path, an HTTP(S) endpoint, or an absolute
+path to a trusted MCP config. All file paths are absolute paths on the Doctor host, including
+policy, suite, capability map, and artifact paths. A local target or config may start a program.
+This nine-tool server is intended for a local, trusted coding agent. Do not expose it over public
+HTTP; the hosted entrypoint above is the only reviewed remote catalog.
+
+`run_mcp_eval` requires the `eval` extra, `OPENAI_API_KEY`, a model ID, and an absolute
+`save_path`. It makes billable model calls. Attempts are limited to 25 per MCP call. It supports
+native MCP background tasks, so a client can receive a task ID and await or cancel the run; a
+normal tool call also works. The default is read effects only, one repetition, and metadata
+recording. Set `options.allow_writes` or `options.allow_destructive` only after reviewing the
+capability map. Unknown effects remain blocked. `options.recording` can be `metadata`, `redacted`
+(with `redaction_patterns`), or `full`. Saved eval artifacts always include prompts and final
+answers, even in metadata mode.
+
+MCP responses include counts, findings, task failures, and artifact paths, with long lists capped
+at 25 items and an omitted count. Saved JSON artifacts contain the complete data. The CLI
+continues to support full text and JSON output.
+
+## Scope Lab
+
+Use `mcp-doctor compare` to compare intentional broad and scoped surfaces without
+the directional baseline semantics of `diff`. `mcp-doctor lab plan` validates a
+strict, pinned 2×2 Supabase Evals study and saves its seeded order. `lab run` is
+the only billable step; it requires the configured `--max-attempts` and writes an
+append-only ledger. `lab report` reads that ledger and can produce Markdown and
+a checked public JSON export. The full contract, pilot manifest, and run recipe
+are in [Scope Lab documentation](docs/lab.md).
 
 ## Selection analysis
 
@@ -239,6 +323,8 @@ FastMCP Client
        -> io.py          versioned eval-run persistence
        -> compare.py     compatible-run regression comparison
        -> report.py      eval text and JSON presentation
+    -> workflows.py      shared inspection, eval, and comparison workflows
+    -> server.py         local FastMCP tools and compact results
     -> cli.py            command-line boundary
 ```
 
@@ -261,16 +347,22 @@ debate—useful both for learning and for an interview walkthrough.
 - measure success, irrelevant calls, call count, latency, and context cost;
 - compare server-interface revisions against the same eval set.
 
-### V0.4 — MCP Doctor as an MCP server
+### V0.4 — MCP Doctor as an MCP server — complete
 
-Expose inspection and evaluation as task-oriented tools so coding agents can diagnose MCP
-servers while developing them.
+- expose inspection, preflight, eval, and artifact comparisons as task-oriented MCP tools;
+- preserve the V0.3 safety gates and artifact formats;
+- support local STDIO and native background execution for long evals.
 
-### V0.5 — deployment and orchestration
+### V0.5 — safe hosted diagnosis — implementation complete, deployment verification pending
 
-- deploy the Doctor server behind Horizon for identity, policy, and audit controls;
+- deploy the narrow Doctor server behind Horizon for identity, policy, and audit controls;
 - add Prefect only when eval suites become durable, concurrent workflows that benefit from
   retries, caching, observability, scheduling, or distributed execution.
+
+The implementation and public-release gates for the first Horizon deployment are in the
+[V0.5 public server plan](docs/specs/v0.5-horizon-public-server.md). Deployment friction is
+recorded without overwriting failed attempts in the
+[Horizon friction log](docs/v0.5-horizon-friction-log.md).
 
 The sequencing is deliberate: first prove the inspection model, then add LLM judgment, then
 operationalize work whose reliability requirements have become real.

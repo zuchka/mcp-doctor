@@ -64,7 +64,7 @@ def _union_branches(value: Any) -> int:
             (len(value.get(key, [])) for key in ("anyOf", "oneOf") if key in value),
             default=0,
         )
-        return max(local, *(_union_branches(child) for child in value.values()))
+        return max((local, *(_union_branches(child) for child in value.values())))
     if isinstance(value, list):
         return max((_union_branches(child) for child in value), default=0)
     return 0
