@@ -901,10 +901,11 @@ wheels = [
 
 [[package]]
 name = "mcp-doctor"
-version = "0.4.0"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp", extra = ["tasks"] },
+    { name = "httpx2" },
     { name = "pydantic" },
 ]
 
@@ -922,6 +923,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastmcp", extras = ["tasks"], specifier = ">=4.0,<5" },
+    { name = "httpx2", specifier = ">=2.13,<3" },
     { name = "openai", marker = "extra == 'eval'", specifier = ">=2.0,<3" },
     { name = "pydantic", specifier = ">=2.11,<3" },
 ]

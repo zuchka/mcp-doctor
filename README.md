@@ -9,7 +9,7 @@ tool surface legible, economical, and unambiguous for an agent, and can an agent
 to complete the work users actually request?* `inspect` never calls server tools. `eval` does,
 inside an explicit safety and recording boundary.
 
-## V0.4
+## V0.5
 
 - Connect to a Streamable HTTP endpoint or a local Python/JavaScript MCP server.
 - Report negotiated server metadata and tools, resources, resource templates, and prompts.
@@ -37,6 +37,11 @@ inside an explicit safety and recording boundary.
 - Serve the same workflows to coding agents as nine task-oriented MCP tools over local STDIO.
 - Return concise, structured MCP results while keeping full reports and eval traces in versioned
   JSON artifacts.
+- Expose a separate, fail-closed hosted catalog with one remote-only diagnosis tool.
+- Restrict hosted egress to exact operator-approved HTTPS targets and bound response, catalog,
+  schema, result, deadline, and concurrency costs.
+- Preserve the trusted local nine-tool server while Horizon supplies inbound OAuth, policy,
+  audit, TLS, scaling, and rollback for the public deployment.
 
 ## Try it
 
@@ -111,7 +116,24 @@ The first provider adapter uses OpenAI Responses custom-function tools. The harn
 are provider-neutral, and the included scripted driver keeps tests and local harness development
 offline and deterministic.
 
-## Use MCP Doctor from a coding agent
+## Host MCP Doctor safely
+
+The Horizon entrypoint is `src/mcp_doctor/hosted_server.py:mcp`. It requires a JSON
+allowlist and exposes only `diagnose_remote_mcp_server`:
+
+```bash
+MCP_DOCTOR_ALLOWED_TARGET_URLS='["https://example.com/mcp"]' \
+  uv run fastmcp run src/mcp_doctor/hosted_server.py:mcp \
+  --transport http --host 127.0.0.1 --port 8765 --no-banner
+```
+
+That command is a loopback development smoke test, not a public deployment recipe. Put the
+entrypoint behind Horizon's authenticated gateway and verify auth, policy, audit, rate limits,
+cold start, conformance, and rollback before publishing its URL. See the
+[hosted operator and client runbook](docs/hosted.md) and the
+[V0.5 public-server plan](docs/specs/v0.5-horizon-public-server.md).
+
+## Use MCP Doctor locally from a coding agent
 
 Start the local MCP server with `uv run mcp-doctor serve`. An MCP client can launch it with a
 configuration like this (replace the directory with this checkout's absolute path):
@@ -144,8 +166,8 @@ The server exposes nine tools:
 Tool inputs accept an absolute local `.py`/`.js` target path, an HTTP(S) endpoint, or an absolute
 path to a trusted MCP config. All file paths are absolute paths on the Doctor host, including
 policy, suite, capability map, and artifact paths. A local target or config may start a program.
-The server is intended for a local, trusted coding agent; HTTP hosting and access controls are
-planned for V0.5.
+This nine-tool server is intended for a local, trusted coding agent. Do not expose it over public
+HTTP; the hosted entrypoint above is the only reviewed remote catalog.
 
 `run_mcp_eval` requires the `eval` extra, `OPENAI_API_KEY`, a model ID, and an absolute
 `save_path`. It makes billable model calls. Attempts are limited to 25 per MCP call. It supports
@@ -331,11 +353,16 @@ debate—useful both for learning and for an interview walkthrough.
 - preserve the V0.3 safety gates and artifact formats;
 - support local STDIO and native background execution for long evals.
 
-### V0.5 — deployment and orchestration
+### V0.5 — safe hosted diagnosis — implementation complete, deployment verification pending
 
-- deploy the Doctor server behind Horizon for identity, policy, and audit controls;
+- deploy the narrow Doctor server behind Horizon for identity, policy, and audit controls;
 - add Prefect only when eval suites become durable, concurrent workflows that benefit from
   retries, caching, observability, scheduling, or distributed execution.
+
+The implementation and public-release gates for the first Horizon deployment are in the
+[V0.5 public server plan](docs/specs/v0.5-horizon-public-server.md). Deployment friction is
+recorded without overwriting failed attempts in the
+[Horizon friction log](docs/v0.5-horizon-friction-log.md).
 
 The sequencing is deliberate: first prove the inspection model, then add LLM judgment, then
 operationalize work whose reliability requirements have become real.

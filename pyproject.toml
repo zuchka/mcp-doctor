@@ -1,11 +1,12 @@
 [project]
 name = "mcp-doctor"
-version = "0.4.0"
+version = "0.5.0"
 description = "A deterministic quality lab for MCP server interfaces"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastmcp[tasks]>=4.0,<5",
+    "httpx2>=2.13,<3",
     "pydantic>=2.11,<3",
 ]
 

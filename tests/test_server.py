@@ -25,7 +25,7 @@ def test_server_tool_surface_passes_doctor_analysis() -> None:
     async def check() -> None:
         report = analyze(await inspect_server(create_server()))
         assert report.warning_count == 0
-        assert report.inspection.server_version == "0.4.0"
+        assert report.inspection.server_version == "0.5.0"
         assert [tool.name for tool in report.inspection.tools] == [
             "diagnose_mcp_server",
             "compare_inspection_reports",

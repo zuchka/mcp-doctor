@@ -14,7 +14,7 @@ seed = 41827
 evals_checkout = "./supabase-evals"
 evals_commit = "<40-character-evals-commit>"
 doctor_commit = "<40-character-doctor-commit>"
-doctor_version = "0.4.0"
+doctor_version = "0.5.0"
 mcp_server_version = "<exact-package-version-or-build-commit>"
 
 [agent]

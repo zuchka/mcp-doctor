@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -29,7 +29,12 @@ async def open_mcp_client(source: Any, *, timeout: float = 30.0) -> AsyncIterato
         yield client
 
 
-async def inspect_connected_client(client: Client, *, target: str) -> ServerInspection:
+async def inspect_connected_client(
+    client: Client,
+    *,
+    target: str,
+    fatal_listing_error: Callable[[Exception], bool] | None = None,
+) -> ServerInspection:
     server_info = model_to_dict(client.server_info) if client.server_info else {}
     capabilities = model_to_dict(client.server_capabilities) if client.server_capabilities else {}
     inspection = ServerInspection(
@@ -74,5 +79,7 @@ async def inspect_connected_client(client: Client, *, target: str) -> ServerInsp
                 [normalizer(item, **normalizer_kwargs) for item in items],
             )
         except Exception as exc:  # A partial report is more useful than no report.
+            if fatal_listing_error is not None and fatal_listing_error(exc):
+                raise
             inspection.listing_errors[field_name] = error_text(exc)
     return inspection
