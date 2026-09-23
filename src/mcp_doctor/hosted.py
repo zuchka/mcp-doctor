@@ -309,15 +309,25 @@ def _success(
 
 
 def create_hosted_server(
-    settings: HostedSettings,
+    settings: HostedSettings | None,
     *,
     resolver: Resolver | None = None,
     inspector: Inspector = inspect_server,
 ) -> FastMCP:
-    """Create the public server from an explicit, fail-closed configuration."""
+    """Create the public server, failing closed at invocation when unconfigured.
 
-    policy = TargetPolicy(settings.allowed_target_urls, resolver=resolver)
-    concurrency = asyncio.Semaphore(settings.max_concurrency)
+    Horizon imports the entrypoint during image build without runtime environment
+    variables. Accepting ``None`` lets that manifest inspection discover the narrow tool
+    surface while every attempted invocation returns ``service_unavailable`` before DNS or
+    network access. Normal callers should still pass validated ``HostedSettings``.
+    """
+
+    policy = (
+        TargetPolicy(settings.allowed_target_urls, resolver=resolver)
+        if settings is not None
+        else None
+    )
+    concurrency = asyncio.Semaphore(settings.max_concurrency if settings is not None else 1)
     server = FastMCP(
         "MCP Doctor Public",
         version=__version__,
@@ -357,6 +367,12 @@ def create_hosted_server(
         """
 
         correlation_id = str(uuid4())
+        if settings is None or policy is None:
+            return _failure(
+                correlation_id,
+                "service_unavailable",
+                "Hosted service configuration is unavailable.",
+            )
         timeout = timeout_seconds or settings.default_timeout_seconds
         if timeout > settings.max_timeout_seconds:
             return _failure(

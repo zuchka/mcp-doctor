@@ -118,8 +118,8 @@ offline and deterministic.
 
 ## Host MCP Doctor safely
 
-The Horizon entrypoint is `src/mcp_doctor/hosted_server.py:mcp`. It requires a JSON
-allowlist and exposes only `diagnose_remote_mcp_server`:
+The Horizon entrypoint is `src/mcp_doctor/hosted_server.py:mcp`. Runtime calls require a JSON
+allowlist, and the server exposes only `diagnose_remote_mcp_server`:
 
 ```bash
 MCP_DOCTOR_ALLOWED_TARGET_URLS='["https://example.com/mcp"]' \

@@ -356,18 +356,44 @@ def test_hosted_diagnosis_maps_target_auth_without_exposing_details() -> None:
     asyncio.run(check())
 
 
-def test_hosted_entrypoint_import_requires_operator_allowlist() -> None:
+def test_unconfigured_hosted_server_is_discoverable_but_cannot_connect() -> None:
+    called = False
+
+    async def forbidden_inspector(source: object, **kwargs: object) -> ServerInspection:
+        nonlocal called
+        called = True
+        return _inspection()
+
+    async def check() -> None:
+        server = create_hosted_server(None, inspector=forbidden_inspector)
+        inspection = await inspect_server(server)
+        assert [tool.name for tool in inspection.tools] == ["diagnose_remote_mcp_server"]
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "diagnose_remote_mcp_server",
+                {"target_url": ALLOWED},
+            )
+        data = result.structured_content
+        assert data is not None
+        assert data["status"] == "failed"
+        assert data["error_code"] == "service_unavailable"
+        assert not called
+
+    asyncio.run(check())
+
+
+def test_hosted_entrypoint_import_supports_build_inspection_without_allowlist() -> None:
     environment = os.environ.copy()
     environment.pop("MCP_DOCTOR_ALLOWED_TARGET_URLS", None)
     missing = subprocess.run(
-        [sys.executable, "-c", "from mcp_doctor.hosted_server import mcp"],
+        [sys.executable, "-c", "from mcp_doctor.hosted_server import mcp; print(mcp.name)"],
         capture_output=True,
         check=False,
         env=environment,
         text=True,
     )
-    assert missing.returncode != 0
-    assert "MCP_DOCTOR_ALLOWED_TARGET_URLS is required" in missing.stderr
+    assert missing.returncode == 0
+    assert missing.stdout.strip() == "MCP Doctor Public"
 
     environment["MCP_DOCTOR_ALLOWED_TARGET_URLS"] = json.dumps([ALLOWED])
     configured = subprocess.run(

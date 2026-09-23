@@ -31,8 +31,8 @@ local paths.
 
 ## Required configuration
 
-The server fails during import unless `MCP_DOCTOR_ALLOWED_TARGET_URLS` is a non-empty JSON
-array of exact HTTPS endpoints:
+At runtime, `MCP_DOCTOR_ALLOWED_TARGET_URLS` must be a non-empty JSON array of exact HTTPS
+endpoints:
 
 ```bash
 export MCP_DOCTOR_ALLOWED_TARGET_URLS='["https://example.com/mcp"]'
@@ -44,6 +44,13 @@ rejected. Downstream requests do not inherit proxy environment variables or call
 credentials. Response bodies, component counts, component sizes, aggregate catalog size,
 schema depth, retained strings, result lists, deadlines, and global concurrency are
 bounded.
+
+Horizon imports the entrypoint during image build without runtime variables so it can inspect
+the MCP manifest. The module therefore remains importable in that build-only state, but the
+tool returns `service_unavailable` before DNS resolution or network I/O. `HostedSettings`
+itself remains strict, and Horizon runtime calls become available only after the encrypted
+allowlist is injected. This separation preserves fail-closed behavior without blocking
+managed manifest inspection.
 
 Optional operator settings are:
 
